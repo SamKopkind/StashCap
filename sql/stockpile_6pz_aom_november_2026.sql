@@ -1,7 +1,7 @@
 -- Stockpile accounts on Apex branch 6PZ that:
 --   1. still hold assets (latest start-of-day total equity > 0)
 --   2. are not Stash subscribers (subscription was never activated)
---   3. the minor reaches age of majority in November 2026
+--   3. the minor has not reached age of majority by the end of November 2026
 --
 -- Warehouse: Redshift. Monolith tables live in source_pg_main.
 -- Subscription state lives in source_subscriptions (not the monolith).
@@ -13,10 +13,9 @@
 -- Source: https://ask.stash.com/ask/age-of-majority/ (updated Aug 11, 2026)
 -- Admin source of truth, if you would rather join it: source_pg_main.jurisdictions
 --
--- "Won't reach AOM until November 2026" is the majority date falling in
--- November 2026 (on or after 2026-11-01 and before 2026-12-01).
--- To include anyone who reaches majority in November 2026 or later,
--- drop the upper bound in the final WHERE.
+-- "Won't reach AOM" means still a minor on 2026-11-30: the majority date
+-- is 2026-12-01 or later. To also include minors who turn of age during
+-- November, change the cutoff in the final WHERE to DATE '2026-11-01'.
 
 WITH age_of_majority AS (
     SELECT 'CA' AS state_code, 18 AS aom_years UNION ALL
@@ -156,6 +155,5 @@ LEFT JOIN activated_subscribers sub
 LEFT JOIN age_of_majority aom
     ON aom.state_code = cm.account_state
 WHERE sub.user_uuid IS NULL
-  AND DATEADD(year, COALESCE(aom.aom_years, 21), cm.minor_date_of_birth) >= DATE '2026-11-01'
-  AND DATEADD(year, COALESCE(aom.aom_years, 21), cm.minor_date_of_birth) < DATE '2026-12-01'
+  AND DATEADD(year, COALESCE(aom.aom_years, 21), cm.minor_date_of_birth) >= DATE '2026-12-01'
 ORDER BY age_of_majority_date, cm.atlas_id;
