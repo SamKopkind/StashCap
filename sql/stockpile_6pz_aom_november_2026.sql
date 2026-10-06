@@ -82,65 +82,80 @@ activated_subscribers AS (
     WHERE s.active = TRUE
        OR s.state IN ('ACTIVE', 'OFFBOARDING')
        OR s.started_on IS NOT NULL
+),
+
+custodial_minors AS (
+    SELECT
+        ba.atlas_id,
+        ba.account_id,
+        ba.user_id,
+        u.uuid::varchar AS user_uuid,
+        ba.aasm_state,
+        ba.conversion_source,
+        m.first_name AS minor_first_name,
+        m.last_name AS minor_last_name,
+        m.date_of_birth::date AS minor_date_of_birth,
+        CASE UPPER(TRIM(COALESCE(m.state, up.home_state)))
+            WHEN 'CA' THEN 'CA'
+            WHEN 'CALIFORNIA' THEN 'CA'
+            WHEN 'DC' THEN 'DC'
+            WHEN 'D.C.' THEN 'DC'
+            WHEN 'DISTRICT OF COLUMBIA' THEN 'DC'
+            WHEN 'KY' THEN 'KY'
+            WHEN 'KENTUCKY' THEN 'KY'
+            WHEN 'LA' THEN 'LA'
+            WHEN 'LOUISIANA' THEN 'LA'
+            WHEN 'ME' THEN 'ME'
+            WHEN 'MAINE' THEN 'ME'
+            WHEN 'MI' THEN 'MI'
+            WHEN 'MICHIGAN' THEN 'MI'
+            WHEN 'NV' THEN 'NV'
+            WHEN 'NEVADA' THEN 'NV'
+            WHEN 'OK' THEN 'OK'
+            WHEN 'OKLAHOMA' THEN 'OK'
+            WHEN 'SC' THEN 'SC'
+            WHEN 'SOUTH CAROLINA' THEN 'SC'
+            WHEN 'SD' THEN 'SD'
+            WHEN 'SOUTH DAKOTA' THEN 'SD'
+            WHEN 'VA' THEN 'VA'
+            WHEN 'VIRGINIA' THEN 'VA'
+            ELSE UPPER(TRIM(COALESCE(m.state, up.home_state)))
+        END AS account_state
+    FROM branch_accounts ba
+    INNER JOIN source_pg_main.users u
+        ON u.id = ba.user_id
+    INNER JOIN source_pg_main.minors m
+        ON m.account_id = ba.account_id
+    LEFT JOIN source_pg_main.user_profiles up
+        ON up.user_id = ba.user_id
+    WHERE m.date_of_birth IS NOT NULL
 )
 
 SELECT
-    ba.atlas_id,
-    ba.account_id,
-    ba.user_id,
-    u.uuid AS user_uuid,
-    ba.aasm_state,
-    ba.conversion_source,
-    m.first_name AS minor_first_name,
-    m.last_name AS minor_last_name,
-    m.date_of_birth::date AS minor_date_of_birth,
-    established_state.state_code AS account_state,
+    cm.atlas_id,
+    cm.account_id,
+    cm.user_id,
+    cm.user_uuid,
+    cm.aasm_state,
+    cm.conversion_source,
+    cm.minor_first_name,
+    cm.minor_last_name,
+    cm.minor_date_of_birth,
+    cm.account_state,
     COALESCE(aom.aom_years, 21) AS age_of_majority_years,
-    DATEADD(year, COALESCE(aom.aom_years, 21), m.date_of_birth::date) AS age_of_majority_date,
+    DATEADD(year, COALESCE(aom.aom_years, 21), cm.minor_date_of_birth) AS age_of_majority_date,
     ls.file_date AS equity_file_date,
     ls.total_equity,
     ls.cash_equity,
     (ls.total_equity - COALESCE(ls.cash_equity, 0)) AS securities_equity
-FROM branch_accounts ba
+FROM custodial_minors cm
 INNER JOIN latest_sod ls
-    ON ls.account_id = ba.account_id
-INNER JOIN source_pg_main.users u
-    ON u.id = ba.user_id
-INNER JOIN source_pg_main.minors m
-    ON m.account_id = ba.account_id
-LEFT JOIN source_pg_main.user_profiles up
-    ON up.user_id = ba.user_id
+    ON ls.account_id = cm.account_id
 LEFT JOIN activated_subscribers sub
-    ON sub.user_uuid = u.uuid::varchar
+    ON sub.user_uuid = cm.user_uuid
 LEFT JOIN age_of_majority aom
-    ON aom.state_code = CASE UPPER(TRIM(COALESCE(m.state, up.home_state)))
-        WHEN 'CA' THEN 'CA'
-        WHEN 'CALIFORNIA' THEN 'CA'
-        WHEN 'DC' THEN 'DC'
-        WHEN 'D.C.' THEN 'DC'
-        WHEN 'DISTRICT OF COLUMBIA' THEN 'DC'
-        WHEN 'KY' THEN 'KY'
-        WHEN 'KENTUCKY' THEN 'KY'
-        WHEN 'LA' THEN 'LA'
-        WHEN 'LOUISIANA' THEN 'LA'
-        WHEN 'ME' THEN 'ME'
-        WHEN 'MAINE' THEN 'ME'
-        WHEN 'MI' THEN 'MI'
-        WHEN 'MICHIGAN' THEN 'MI'
-        WHEN 'NV' THEN 'NV'
-        WHEN 'NEVADA' THEN 'NV'
-        WHEN 'OK' THEN 'OK'
-        WHEN 'OKLAHOMA' THEN 'OK'
-        WHEN 'SC' THEN 'SC'
-        WHEN 'SOUTH CAROLINA' THEN 'SC'
-        WHEN 'SD' THEN 'SD'
-        WHEN 'SOUTH DAKOTA' THEN 'SD'
-        WHEN 'VA' THEN 'VA'
-        WHEN 'VIRGINIA' THEN 'VA'
-        ELSE NULL
-    END
+    ON aom.state_code = cm.account_state
 WHERE sub.user_uuid IS NULL
-  AND m.date_of_birth IS NOT NULL
-  AND DATEADD(year, COALESCE(aom.aom_years, 21), m.date_of_birth::date) >= DATE '2026-11-01'
-  AND DATEADD(year, COALESCE(aom.aom_years, 21), m.date_of_birth::date) < DATE '2026-12-01'
-ORDER BY age_of_majority_date, ba.atlas_id;
+  AND DATEADD(year, COALESCE(aom.aom_years, 21), cm.minor_date_of_birth) >= DATE '2026-11-01'
+  AND DATEADD(year, COALESCE(aom.aom_years, 21), cm.minor_date_of_birth) < DATE '2026-12-01'
+ORDER BY age_of_majority_date, cm.atlas_id;
