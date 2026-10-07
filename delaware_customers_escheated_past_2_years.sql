@@ -1,8 +1,3 @@
--- Delaware customers whose Apex brokerage accounts had property escheated by
--- Apex in the rolling two-year period ending today.
---
--- Addresses are the customers' current home addresses.
-
 SELECT
     activity.accountnumber::varchar AS account_number,
     COALESCE(profiles.home_street_address || ', ', '')
